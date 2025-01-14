@@ -62,7 +62,13 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 			Message: "Access Denied",
 		})
 
-	case hasAuthHeader && hasBearerToken && isNotCallback && isJWT:
+	case hasAuthHeader && hasBearerToken && isNotCallback:
+		if !isJWT {
+			return c.JSON(fiber.Error{
+				Code:    401,
+				Message: "Unauthorized",
+			})
+		}
 
 		var discoveryURL = fmt.Sprintf("%s/%s", s.config.IssuerURL, DiscoveryPath)
 		var idpConfig, idpErr = fetchOpenIDConfiguration(discoveryURL)
