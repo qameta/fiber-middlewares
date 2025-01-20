@@ -169,11 +169,6 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 		if ok {
 			groups, _ := interfaceToStringSlice(groupsContainer)
 			if containsAny(s.config.Groups, groups) {
-				c.Cookie(&fiber.Cookie{
-					Name:     "token",
-					Value:    token.Raw,
-					HTTPOnly: true,
-				})
 				return c.Next()
 			}
 		}
