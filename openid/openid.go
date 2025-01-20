@@ -175,19 +175,13 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 					HTTPOnly: true,
 				})
 				return c.Next()
-			} else {
-				return c.Status(401).JSON(fiber.Error{
-					Code:    401,
-					Message: "UNAUTHORIZED",
-				})
 			}
 		}
-		return c.Status(401).JSON(fiber.Error{
-			Code:    401,
-			Message: "UNAUTHORIZED",
-		})
 	}
-	return c.Next()
+	return c.Status(401).JSON(fiber.Error{
+		Code:    401,
+		Message: "UNAUTHORIZED",
+	})
 }
 
 func (s *OIDCMiddleware) RedirectToIDP(c *fiber.Ctx) error {
