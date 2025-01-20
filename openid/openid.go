@@ -53,7 +53,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 	var hasAuthHeader = funk.NotEmpty(authHeader)
 	var hasBearerToken = strings.HasPrefix(authHeader, "Bearer")
 	var rawToken = strings.TrimPrefix(authHeader, "Bearer ")
-	var isJWT = strings.HasPrefix(authHeader, "ey")
+	var isJWT = strings.HasPrefix(rawToken, "ey")
 
 	switch {
 	case !hasAuthHeader && isNotCallback:
