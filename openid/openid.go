@@ -57,8 +57,11 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 	var rawToken = strings.TrimPrefix(authHeader, "Bearer ")
 	var isJWT = strings.HasPrefix(rawToken, "ey")
 
+	log.Infof("Processing request: %s", c.Path())
+
 	switch {
 	case !hasAuthHeader && isNotCallback:
+		log.Debugf("[OIDC] - No Auth Header Provided: %v", c.GetReqHeaders())
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Error{
 			Code:    fiber.StatusUnauthorized,
 			Message: "Access Denied",
@@ -72,6 +75,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 			req.Method = http.MethodPost
 			req.URL, parseErr = url.Parse(fmt.Sprintf("%s/%s", s.config.IssuerURL, GrantsPath))
 			if parseErr != nil {
+				log.Errorf("[OIDC] - Failed parsing URL: %v", parseErr)
 				return c.JSON(fiber.Error{
 					Code:    401,
 					Message: "Unauthorized",
@@ -80,8 +84,10 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 
 			req.Header.Add("Accept", "application/json")
 			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", rawToken))
+
 			response, err := http.DefaultClient.Do(&req)
 			if err != nil {
+				log.Errorf("[OIDC] - Failed sending request: %v", err)
 				return c.JSON(fiber.Error{
 					Code:    401,
 					Message: "Unauthorized",
@@ -92,6 +98,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 
 			err = json.NewDecoder(response.Body).Decode(&data)
 			if err != nil {
+				log.Errorf("[OIDC] - Failed decoding response: %v", err)
 				return c.JSON(fiber.Error{
 					Code:    401,
 					Message: "Unauthorized",
@@ -100,6 +107,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 
 			rawGroups, ok := ask.For(data, "result[0].roleKeys").Slice([]interface{}{})
 			if !ok {
+				log.Errorln("[OIDC] - Insufficient Grants")
 				return c.JSON(fiber.Error{
 					Code:    401,
 					Message: "Unauthorized",
@@ -108,6 +116,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 
 			var groups, convErr = interfaceToStringSlice(rawGroups)
 			if convErr != nil {
+				log.Errorf("[OIDC] - Failed converting groups: %v", convErr)
 				return c.JSON(fiber.Error{
 					Code:    401,
 					Message: "Unauthorized",
@@ -118,6 +127,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 				return c.Next()
 			}
 
+			log.Debugf("[OIDC] - No Required Grants Provided: %v", groups)
 			return c.JSON(fiber.Error{
 				Code:    401,
 				Message: "Unauthorized",
@@ -136,22 +146,26 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 
 		var token, tokenErr = jwt.Parse(rawToken, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				log.Errorf("[OIDC] - Unexpected signing method: %v", token.Header["alg"])
 				return nil, fmt.Errorf("[OIDC] - Unexpected signing method: %v", token.Header["alg"])
 			}
 
 			jwks, jwksErr := fetchJWKS(idpConfig.JwksURI)
 			if jwksErr != nil {
-				fmt.Println("[OIDC] - Failed to fetch JWKS:", jwksErr)
+				log.Errorf("[OIDC] - Failed to fetch JWKS: %v", jwksErr)
 				return nil, jwksErr
 			}
 
 			kid, ok := token.Header["kid"].(string)
 			if !ok {
-				return nil, errors.New("[OIDC] - missing kid in token header")
+				kidErr := errors.New("[OIDC] - missing kid in token header")
+				log.Error(kidErr)
+				return nil, kidErr
 			}
 
 			key, err := findKey(jwks, kid)
 			if err != nil {
+				log.Errorf("[OIDC] - Failed to find key: %v", err)
 				return nil, err
 			}
 
@@ -167,6 +181,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 
 		audience, err := token.Claims.GetAudience()
 		if err != nil {
+			log.Errorf("[OIDC] - Failed extracting audience: %v", err)
 			return c.JSON(fiber.Error{
 				Code:    401,
 				Message: "Unauthorized",
@@ -205,6 +220,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 		}(resp.Body)
 
 		if resp.StatusCode != http.StatusOK {
+			log.Errorf("[OIDC] - Failed fetching user info: %v", resp.Status)
 			return c.JSON(fiber.Error{
 				Code:    401,
 				Message: "Unauthorized",
@@ -227,6 +243,7 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 			}
 		}
 	}
+	log.Errorf("[OIDC] - No Auth Provided: %v", c.GetReqHeaders())
 	return c.Status(401).JSON(fiber.Error{
 		Code:    401,
 		Message: "UNAUTHORIZED",
