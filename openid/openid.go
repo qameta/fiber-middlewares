@@ -14,11 +14,13 @@ import (
 	"golang.org/x/oauth2"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 )
 
 const DiscoveryPath = ".well-known/openid-configuration"
+const GrantsPath = "auth/v1/usergrants/me/_search"
 
 type OIDCMiddleware struct {
 	config    *Config
@@ -64,6 +66,58 @@ func (s *OIDCMiddleware) HandleAuth(c *fiber.Ctx) error {
 
 	case hasAuthHeader && hasBearerToken && isNotCallback:
 		if !isJWT {
+			var req = http.Request{}
+			var parseErr error
+			req.Header = http.Header{}
+			req.Method = http.MethodPost
+			req.URL, parseErr = url.Parse(fmt.Sprintf("%s/%s", s.config.IssuerURL, GrantsPath))
+			if parseErr != nil {
+				return c.JSON(fiber.Error{
+					Code:    401,
+					Message: "Unauthorized",
+				})
+			}
+
+			req.Header.Add("Accept", "application/json")
+			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", rawToken))
+			response, err := http.DefaultClient.Do(&req)
+			if err != nil {
+				return c.JSON(fiber.Error{
+					Code:    401,
+					Message: "Unauthorized",
+				})
+			}
+
+			var data map[string]interface{}
+
+			err = json.NewDecoder(response.Body).Decode(&data)
+			if err != nil {
+				return c.JSON(fiber.Error{
+					Code:    401,
+					Message: "Unauthorized",
+				})
+			}
+
+			rawGroups, ok := ask.For(data, "result[0].roleKeys").Slice([]interface{}{})
+			if !ok {
+				return c.JSON(fiber.Error{
+					Code:    401,
+					Message: "Unauthorized",
+				})
+			}
+
+			var groups, convErr = interfaceToStringSlice(rawGroups)
+			if convErr != nil {
+				return c.JSON(fiber.Error{
+					Code:    401,
+					Message: "Unauthorized",
+				})
+			}
+
+			if containsAny(s.config.Groups, groups) {
+				return c.Next()
+			}
+
 			return c.JSON(fiber.Error{
 				Code:    401,
 				Message: "Unauthorized",
